@@ -29,7 +29,7 @@
   const usd = (v, signed) => v == null ? 'n/a' : (signed ? (v >= 0 ? '+$' : '-$') : (v < 0 ? '-$' : '$')) + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const kfmt = v => v == null ? 'n/a' : Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : Math.abs(v) >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'K' : '$' + v.toFixed(0);
   const pct = (v, nd) => v == null ? 'n/a' : (v >= 0 ? '+' : '') + v.toFixed(nd == null ? 2 : nd) + '%';
-  const hm = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const hm = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
   const shortM = m => m ? m.slice(0, 4) + '...' + m.slice(-3) : '';
   const nm = (n, m) => esc(n || shortM(m));
   function price(p) {
