@@ -38,10 +38,6 @@
     const s = p.toPrecision(4);
     return '$' + (p < 1e-4 ? Number(s).toExponential(3) : Number(s).toString());
   }
-  function priceHtml(p) {
-    const t = price(p), m = t.match(/^(\$\d*\.?\d*?)(\d{2})$/);
-    return p != null && p < 1 && m && !/e/.test(t) ? `${esc(m[1])}<span class="cents">${m[2]}</span>` : esc(t);
-  }
   const fomoA = (href, label, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" target="_blank" rel="noopener">${label}</a>` : '';
 
   // ---------- odometer: each changed digit rolls 600ms ease-out, 30ms stagger right to left
@@ -176,7 +172,7 @@
   function ringSvg(frac, color, icon) {
     const r = 19, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
     return `<span class="ring"><svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="3.5"/>
-      <circle cx="23" cy="23" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 23 23)"/></svg>
+      <circle cx="23" cy="23" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-opacity="${f > 0 ? 1 : 0}" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 23 23)"/></svg>
       <span class="ri" style="color:${color}">${icon}</span></span>`;
   }
 
@@ -263,7 +259,7 @@
     const el = $('#s-home');
     const st = S.state;
     if (!st) {
-      el.innerHTML = navbar() + `<div class="hero">${skel(16, '40%', 4)}${skel(64, '75%', 12)}${skel(18, '50%', 10)}</div>${skel(260, '', 16)}${skel(36, '', 12)}
+      el.innerHTML = navbar() + `<div style="padding-top:14px">${skel(16, '40%', 4)}${skel(64, '75%', 12)}${skel(18, '50%', 10)}</div>${skel(260, '', 16)}${skel(36, '', 12)}
         <div class="section"><h2>Agents</h2></div><div class="agrid"><div class="agc skel"></div><div class="agc skel"></div></div>
         <div class="section"><h2>Activity</h2></div>${skel(60, '', 0)}${skel(60, '', 8)}`;
       delete el.dataset.built;
@@ -293,6 +289,7 @@
     const diff = st.balance - (st.nightStartBalance || st.balance);
     $('#today').className = diff >= 0 ? 'up' : 'down';
     $('#today').textContent = `${diff >= 0 ? '▲' : '▼'} ${usd(Math.abs(diff))} (${Math.abs(st.todayPct).toFixed(2)}%)`;
+    $('.balance').classList.toggle('neg', diff < 0);
     $('#mult').textContent = st.multiplier.toFixed(2) + '×';
     $('#mult').className = 'pill mult' + (st.multiplier < 1 ? ' neg' : '');
     $('#ranges').innerHTML = ['LIVE', '1H', '4H', '1D', '1W', 'ALL'].map(r => `<button data-go="range:${r}" class="${S.range === r ? 'on' : ''}">${r}</button>`).join('');
@@ -320,7 +317,7 @@
   function renderAgents() {
     const el = $('#s-agents');
     const st = S.state, ag = S.agents;
-    let h = topbar('Agents', { right: modePill(st && st.mode) || undefined }) + `<div class="lgtitle">Agents${st ? ` <span class="sk up">${st.running} running</span>` : ''}</div>`;
+    let h = topbar('', { right: modePill(st && st.mode) || undefined }) + `<div class="lgtitle">Agents${st ? ` <span class="sk up">${st.running} running</span>` : ''}</div>`;
     if (!st || !ag) { el.innerHTML = h + [1, 2, 3].map(() => skel(220, '', 12)).join(''); return; }
     const names = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk' };
     const colors = { scanner: '#64d2ff', auditor: '#fff', analyst: '#ffd60a', executor: '#00d35a', risk: '#ff6b9a' };
@@ -346,7 +343,7 @@
   function renderActivity() {
     const el = $('#s-activity');
     const tr = S.state && S.state.agents.executor ? S.state.agents.executor.trades : null;
-    let h = topbar('Activity') + `<div class="lgtitle">Activity${tr != null ? ` <span class="sk up">${tr} trade${tr === 1 ? '' : 's'}</span>` : ''}</div>`;
+    let h = topbar('') + `<div class="lgtitle">Activity${tr != null ? ` <span class="sk up">${tr} trade${tr === 1 ? '' : 's'}</span>` : ''}</div>`;
     if (!S.activity) { el.innerHTML = h + [1, 2, 3, 4].map(() => skel(60, '', 8)).join(''); return; }
     const rows = S.activity.rows, n = S.actPage * (S.activity.pageSize || 30);
     h += rows.length ? `<div class="alist">${rows.slice(0, n).map(activityRow).join('')}</div>` + (rows.length > n ? `<button class="cta ghost" data-go="more">Show more</button>` : '')
@@ -358,12 +355,12 @@
   function renderAccount() {
     const el = $('#s-account');
     const a = S.account;
-    let h = topbar('Account', { right: '<button class="sharebtn" data-go="invite">Share</button>' }) + `<div class="botrow big">${botAvatar}<div><div class="bn">Grok Bot</div><div class="muted" style="font-size:13px">FOMO desk · @Grokeasybot</div></div><div class="grow"></div>${modePill(a && a.mode)}</div>`;
+    let h = topbar('', { right: '<button class="sharebtn" data-go="invite">Share</button>' }) + `<div class="botrow big">${botAvatar}<div><div class="bn">Grok Bot</div><div class="muted" style="font-size:13px">FOMO desk · @Grokeasybot</div></div><div class="grow"></div>${modePill(a && a.mode)}</div>`;
     if (!a) { el.innerHTML = h + skel(160, '', 8) + skel(300, '', 16); return; }
     const labels = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk', desk: 'Desk' };
     const val = (k, v) => typeof v === 'boolean' ? (v ? 'on' : 'off') : (k === 'stop_pct' ? '-' + v + '%' : k.endsWith('_pct') ? v + '%' : k.endsWith('_usd') ? '$' + v : String(v));
     h += `<div class="list">
-      <div class="kv"><span class="k">Mode</span><span class="val">${a.mode === 'PAPER' ? '<span class="pill paper">PAPER</span>' : 'LIVE'}</span></div>
+      <div class="kv"><span class="k">Mode</span><span class="val">${modePill(a.mode)}</span></div>
       <div class="kv"><span class="k">Stack</span><span class="val">${usd(a.stack)}</span></div>
       <a class="kv" href="${esc(a.profile_url)}" target="_blank" rel="noopener"><span>Your FOMO profile</span><span class="val muted">@${esc(a.fomo_handle)} ›</span></a>
       <button class="kv" style="width:100%" data-go="invite"><span>Invite a friend</span><span class="val muted">Share ›</span></button>
@@ -398,9 +395,9 @@
     const open = pos && pos.open;
     h += `<div style="padding:4px 16px 0"><div style="display:flex;align-items:center;gap:12px">${AV(c.name || c.mint, c.mint, 44)}<span style="font-size:22px;font-weight:700;flex:1">${nm(c.name, c.mint)}</span>${shield}</div>
       <div class="muted" style="margin-top:2px">${esc(c.symbol || '')} · Solana${age ? ' · ' + age : ''}</div>${c.tag ? `<div class="tag">${esc(c.tag)}</div>` : ''}</div>
-      <div class="price">${priceHtml(c.price)}</div>
+      <div class="price">${price(c.price)}</div>
       ${c.sinceEntryPct != null ? `<div style="padding:0 16px" class="${c.sinceEntryPct >= 0 ? 'up' : 'down'}">${c.sinceEntryPct >= 0 ? '▲' : '▼'} ${Math.abs(c.sinceEntryPct).toFixed(2)}% since entry</div>` : ''}
-      <div class="chartwrap" style="padding:0 16px"><canvas id="candles"></canvas></div>
+      <div class="chartwrap"><canvas id="candles"></canvas></div>
       <div class="grid2" style="margin-top:14px">
         <div class="cell"><div class="k">Market cap</div><div class="val">${kfmt(c.stats.marketCap)}</div></div>
         <div class="cell"><div class="k">Liquidity</div><div class="val">${kfmt(c.stats.liquidity)}</div></div>
