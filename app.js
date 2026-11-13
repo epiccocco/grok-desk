@@ -9,7 +9,7 @@
   // ---------- data path (#d=... once, then localStorage)
   (function () {
     const m = location.hash.match(/[#&]d=([A-Za-z0-9_-]{32,})/);
-    if (m) { localStorage.setItem('desk_d', m[1]); history.replaceState(null, '', location.pathname + location.search); }
+    if (m) { localStorage.setItem('desk_d', m[1]); }
   })();
   const DP = localStorage.getItem('desk_d');
   const BASE = DP ? `d/${DP}/` : null;
