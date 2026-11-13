@@ -78,7 +78,7 @@
     const e = $('#err');
     if (!S.failing) { e.classList.remove('on'); return; }
     const n = Math.max(0, Math.ceil((S.nextTry - Date.now()) / 1000));
-    e.textContent = `Desk offline · retrying in ${n}s · last update ${S.lastOk ? hm(S.lastOk / 1000) : 'never'}`;
+    e.textContent = `Desk offline · retrying in ${n}s · last update ${S.lastOk ? hm(S.lastOk / 1000) : 'never'}${S.errMsg ? ' · ' + S.errMsg : ''}`;
     e.classList.add('on');
   }
   setInterval(setError, 1000);
@@ -496,7 +496,7 @@
       if (S.screen === 'coin' && S.coinMint) await loadCoin(S.coinMint);
       if (S.screen === 'auditor' && S.auditMint) await loadCoin(S.auditMint);
     } catch (e) {
-      S.failing = true;
+      S.failing = true; S.errMsg = (e && (e.message || String(e)) || 'error').slice(0, 80);
       if (!S.lastOk && S.state) S.lastOk = S.state.ts * 1000;
     }
     S.nextTry = Date.now() + POLL_S * 1000;
