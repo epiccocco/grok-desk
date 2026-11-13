@@ -1,7 +1,7 @@
 /* Hand-drawn <canvas> charts. No chart library. devicePixelRatio aware. */
 (function (W) {
   const RM = W.matchMedia && W.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const C = { green: '#00d35a', red: '#ff453a', blue: '#0a84ff', orange: '#ff9f0a', cyan: '#64d2ff', ter: 'rgba(235,235,245,0.3)', sec: 'rgba(235,235,245,0.6)', sep: 'rgba(84,84,88,0.55)' };
+  const C = { green: '#16e08a', red: '#ff3b30', blue: '#0a84ff', orange: '#ff9f0a', cyan: '#64d2ff', ter: 'rgba(235,235,245,0.3)', sec: 'rgba(235,235,245,0.6)', sep: 'rgba(84,84,88,0.55)' };
 
   function setup(cv, h) {
     const dpr = W.devicePixelRatio || 1;
@@ -75,7 +75,7 @@
     }
     // gradient fill under the line
     const g = ctx.createLinearGradient(0, top, 0, bot);
-    g.addColorStop(0, 'rgba(0,211,90,0.28)'); g.addColorStop(1, 'rgba(0,211,90,0)');
+    g.addColorStop(0, 'rgba(22,224,138,0.28)'); g.addColorStop(1, 'rgba(22,224,138,0)');
     ctx.beginPath(); ctx.moveTo(drawPts[0][0], bot);
     drawPts.forEach(p => ctx.lineTo(p[0], p[1]));
     ctx.lineTo(drawPts[n - 1][0], bot); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
@@ -171,7 +171,7 @@
 
   // ---------- SVG area chart with event bubbles (v2 home)
   // data {points:[[ts,v]], start, events:[{ts, kind, name, mint, label, color}]}
-  const BCOL = { green: '#00d35a', red: '#ff453a', blue: '#0a84ff' };
+  const BCOL = { green: '#16e08a', red: '#ff3b30', blue: '#0a84ff' };
   function hue(s) { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; }
   function initials(n) { const w = String(n || '?').replace(/[^A-Za-z0-9 ]/g, '').trim().split(/\s+/); return ((w[0] || '?')[0] + (w[1] ? w[1][0] : (w[0] || '').slice(1, 2))).toUpperCase(); }
   function avatar(name, mint, size) {
@@ -180,26 +180,37 @@
   }
   const escH = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // v3: sharp neon line with glow, LIVE slide-left, leading dot pulse, glass bubbles that spring in when new.
+  // Rebuilds only when the data really changes, so loops (pulse) and pops never restart on an unchanged poll.
+  const GREEN = '#16e08a', RED = '#ff3b30';
   function area(el, data, opt) {
     opt = opt || {};
     const w = el.clientWidth || 358, H = opt.height || 300;
     const pts = (data && data.points) || [];
+    const prev = el._st || null;
     if (pts.length < 2) {
+      el._st = { range: opt.range, empty: true };
+      if (prev && prev.empty && prev.w === w) return;
       el.style.height = H + 'px';
-      el.innerHTML = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><line x1="0" x2="${w}" y1="${H * 0.62}" y2="${H * 0.62}" stroke="rgba(235,235,245,.25)" stroke-dasharray="3 5"/></svg>
+      el.innerHTML = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><line x1="0" x2="${w}" y1="${H * 0.62}" y2="${H * 0.62}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 5"/></svg>
         <div class="chartmsg" style="top:${H * 0.62 - 44}px">Waiting for the first trade</div>`;
+      el._st.w = w;
       return;
     }
+    const evAll = ((data.events) || []);
     const minX = pts[0][0], maxX = pts[pts.length - 1][0];
+    const evs = evAll.filter(e => e.ts >= minX - 1 && e.ts <= maxX + 1).sort((a, b) => b.ts - a.ts).slice(0, 8);
+    const ekey = e => e.kind + ':' + e.mint + ':' + Math.round(e.ts);
+    const sig = [opt.range, w, H, pts.length, pts[0][0], pts[0][1], maxX, pts[pts.length - 1][1], data.start, evs.map(e => ekey(e) + e.label).join('|')].join(';');
+    if (prev && prev.sig === sig) return;
+    const sameRange = prev && !prev.empty && prev.range === opt.range && prev.w === w;
     const X = t => maxX === minX ? w - 6 : 4 + (t - minX) / (maxX - minX) * (w - 10);
-    // events in range, newest first get priority for a lane
-    const evs = ((data.events) || []).filter(e => e.ts >= minX - 1 && e.ts <= maxX + 1).sort((a, b) => b.ts - a.ts).slice(0, 8);
     const BH = 40, GAP = 8, LANE = BH + 10, LANES = 3;
     const lanes = Array.from({ length: LANES }, () => []);
     const placed = [];
     for (const e of evs) {
       const txt = Math.max(String(e.name).length, String(e.label).length);
-      const bw = Math.min(150, Math.max(92, 38 + txt * 6.6));
+      const bw = Math.min(156, Math.max(98, 44 + txt * 6.6));
       const cx = X(e.ts);
       const x0 = Math.max(0, Math.min(w - bw, cx - bw / 2));
       let lane = -1;
@@ -218,31 +229,62 @@
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
     const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
     const Y = v => bot - (v - lo) / (hi - lo) * (bot - top);
-    const P = pts.map(p => [X(p[0]), Y(p[1])]);
+    // LIVE: new points arrived in the same window -> slide the whole line left so the latest point lands on the right edge
+    const lastPrev = prev && prev.last;
+    const slide = !RM && sameRange && opt.range === 'LIVE' && lastPrev && maxX > lastPrev[0] && lastPrev[0] >= minX - 3600;
+    // keep the points that just scrolled off the left so the left edge has no gap while sliding
+    let drawPts = pts;
+    if (slide && prev.pts) drawPts = prev.pts.filter(p => p[0] < minX).concat(pts);
+    const P = drawPts.map(p => [X(p[0]), Y(p[1])]);
     const line = P.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('');
     const areaD = line + `L${P[P.length - 1][0].toFixed(1)} ${H}L${P[0][0].toFixed(1)} ${H}Z`;
     const up = pts[pts.length - 1][1] >= (data.start != null ? data.start : pts[0][1]);
-    const col = up ? '#00d35a' : '#ff453a';
+    const col = up ? GREEN : RED;
     const gid = 'g' + Math.random().toString(36).slice(2, 7);
     const valueAt = t => { let b = pts[0]; for (const p of pts) { if (p[0] <= t) b = p; else break; } return b[1]; };
-    let svg = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${col}" stop-opacity=".32"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>`;
-    if (data.start != null) svg += `<line x1="0" x2="${w}" y1="${Y(data.start).toFixed(1)}" y2="${Y(data.start).toFixed(1)}" stroke="rgba(235,235,245,.22)" stroke-dasharray="3 5"/>`;
-    svg += `<path d="${areaD}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    let svg = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><defs>
+      <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".26"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient>
+      <filter id="${gid}f" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+      <clipPath id="${gid}c"><rect x="0" y="-40" width="${w + 40}" height="${H + 80}"/></clipPath></defs>`;
+    if (data.start != null) svg += `<line x1="0" x2="${w}" y1="${Y(data.start).toFixed(1)}" y2="${Y(data.start).toFixed(1)}" stroke="rgba(255,255,255,.16)" stroke-dasharray="3 5"/>`;
+    svg += `<g clip-path="url(#${gid}c)"><g class="cmove">`;
+    svg += `<path d="${areaD}" fill="url(#${gid})"/>`;
+    svg += `<path d="${line}" fill="none" stroke="${col}" stroke-width="5" stroke-opacity=".75" stroke-linejoin="miter" stroke-miterlimit="3" filter="url(#${gid}f)"/>`;
+    svg += `<path class="cline" d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="miter" stroke-miterlimit="3" stroke-linecap="butt"/>`;
     let html = '';
-    for (const b of placed) {
+    const seen = (sameRange && prev.seen) || null;    // null: first draw or new range -> every bubble pops
+    const nowSeen = new Set();
+    let k = 0;
+    for (const b of placed.slice().sort((a, b2) => a.e.ts - b2.e.ts)) {
       const c = BCOL[b.e.color] || BCOL.blue;
       const dy = Y(valueAt(b.e.ts)), by = 6 + b.lane * LANE + BH;
-      const lx = Math.max(b.x0 + 12, Math.min(b.x0 + b.w - 12, b.cx));
-      svg += `<path d="M${lx.toFixed(1)} ${by}L${b.cx.toFixed(1)} ${(dy - 5).toFixed(1)}" stroke="${c}" stroke-opacity=".7" stroke-width="1.2" stroke-dasharray="1.5 3.5" fill="none" stroke-linecap="round"/>`;
+      const lx = Math.max(b.x0 + 14, Math.min(b.x0 + b.w - 14, b.cx));
+      svg += `<path d="M${lx.toFixed(1)} ${by}L${b.cx.toFixed(1)} ${(dy - 5).toFixed(1)}" stroke="${c}" stroke-opacity=".6" stroke-width="1.2" stroke-dasharray="1.5 3.5" fill="none" stroke-linecap="round"/>`;
       svg += `<circle cx="${b.cx.toFixed(1)}" cy="${dy.toFixed(1)}" r="4.5" fill="#000" stroke="${c}" stroke-width="2"/>`;
-      html += `<div class="bub" data-go="coin:${escH(b.e.mint)}" style="left:${b.x0.toFixed(1)}px;top:${6 + b.lane * LANE}px;width:${b.w.toFixed(0)}px;border-color:${c}">
-        ${avatar(b.e.name, b.e.mint, 24)}<span class="bt"><b>${escH(b.e.name)}</b><i style="color:${c}">${escH(b.e.label)}</i></span></div>`;
+      const key = ekey(b.e); nowSeen.add(key);
+      const isNew = !seen || !seen.has(key);
+      const delay = !isNew ? 0 : (seen ? (slide ? 260 : 0) : 120 + k++ * 90);
+      html += `<div class="bub${isNew && !RM ? ' pop' : ''}" data-go="coin:${escH(b.e.mint)}" style="left:${b.x0.toFixed(1)}px;top:${6 + b.lane * LANE}px;width:${b.w.toFixed(0)}px;--d:${delay}ms;transform-origin:${Math.max(10, Math.min(b.w - 10, b.cx - b.x0)).toFixed(0)}px 100%">
+        ${avatar(b.e.name, b.e.mint, 26)}<span class="bt"><b>${escH(b.e.name)}</b><i style="color:${c}">${escH(b.e.label)}</i></span></div>`;
     }
     const L = P[P.length - 1];
-    svg += `<circle class="pulse" cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="9" fill="${col}" fill-opacity=".25"/><circle cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="4" fill="${col}"/></svg>`;
+    svg += `<circle class="pring" cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="7" fill="none" stroke="${col}" stroke-width="2"/>
+      <circle cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="7" fill="${col}" fill-opacity=".22"/>
+      <circle class="pdot" cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="4" fill="${col}" style="color:${col}"/></g></g></svg>`;
     el.style.height = H + 'px';
     el.innerHTML = svg + html;
+    el.classList.toggle('down', !up);
+    if (slide) {
+      // the previous latest point sat on the right edge: start shifted by that distance, then glide to 0
+      const shift = (w - 6) - X(lastPrev[0]);
+      const g = el.querySelector('.cmove');
+      if (shift > 0.5 && g) {
+        g.style.transform = `translateX(${shift.toFixed(1)}px)`;
+        g.getBoundingClientRect();
+        requestAnimationFrame(() => { g.style.transition = 'transform 600ms cubic-bezier(.25,.8,.25,1)'; g.style.transform = 'translateX(0)'; });
+      }
+    }
+    el._st = { sig, range: opt.range, w, last: pts[pts.length - 1], pts, seen: nowSeen };
   }
 
   W.DeskChart = { line, area, avatar, candles, ring, reducedMotion: RM };

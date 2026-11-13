@@ -40,37 +40,80 @@
   }
   const fomoA = (href, label, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" target="_blank" rel="noopener">${label}</a>` : '';
 
-  // ---------- odometer: each changed digit rolls 600ms ease-out, 30ms stagger right to left
+  // ---------- odometer (v3): every digit is a 0-9 column that rolls ~100ms per digit step to the new digit.
+  // Runs only when the real value changes (and once on first load, from 0). Never simulated.
+  const colHTML = d => `<span class="odo"><span class="col" data-d="${d}" style="transform:translateY(-${d * 1.05}em)">${[0,1,2,3,4,5,6,7,8,9].map(x => `<span>${x}</span>`).join('')}</span></span>`;
   function odometer(el, text) {
-    const chars = text.split('');
     if (el.dataset.v === text) return;
-    const old = el.dataset.v || '';
+    const old = el.dataset.v;
     el.dataset.v = text;
-    if (old.length !== text.length || RM) {
-      el.innerHTML = chars.map(c => /\d/.test(c)
-        ? `<span class="odo"><span class="col" style="transform:translateY(-${(RM ? +c : 0) * 1.05}em)">${[0,1,2,3,4,5,6,7,8,9].map(d => `<span>${d}</span>`).join('')}</span></span>`
-        : `<span>${esc(c)}</span>`).join('');
-      if (!RM) requestAnimationFrame(() => requestAnimationFrame(() => roll(el, chars, null)));
-      else roll(el, chars, null, true);
-      return;
+    const chars = text.split(''), oc = (old || '').split('');
+    const shape = t => String(t).replace(/\d/g, '0');
+    if (old == null || shape(old) !== shape(text)) {
+      // new shape: digits start from the old digit at the same place counted from the right (or 0)
+      const off = oc.length - chars.length;
+      el.innerHTML = chars.map((c, i) => /\d/.test(c) ? colHTML(RM ? +c : (/\d/.test(oc[i + off] || '') ? +oc[i + off] : 0)) : `<span class="sym">${esc(c)}</span>`).join('');
+      el.getBoundingClientRect();
     }
-    roll(el, chars, old.split(''));
-  }
-  function roll(el, chars, old, instant) {
-    const kids = el.children;
     let fromRight = 0;
     for (let i = chars.length - 1; i >= 0; i--) {
       const c = chars[i];
       if (!/\d/.test(c)) continue;
-      const col = kids[i] && kids[i].firstChild;
+      const col = el.children[i] && el.children[i].firstChild;
       if (!col) continue;
-      if (!old || old[i] !== c) {
-        col.style.transitionDelay = instant ? '0ms' : (fromRight * 30) + 'ms';
-        col.style.transform = `translateY(-${(+c) * 1.05}em)`;
-        fromRight++;
-      }
+      const from = +col.dataset.d, to = +c;
+      if (from === to) continue;
+      col.dataset.d = to;
+      if (RM) { col.style.transition = 'none'; col.style.transform = `translateY(-${to * 1.05}em)`; continue; }
+      const steps = Math.abs(to - from);
+      col.style.transitionDuration = Math.max(160, steps * 100) + 'ms';
+      col.style.transitionDelay = (fromRight++ * 35) + 'ms';
+      col.classList.add('rolling');
+      col.style.transform = `translateY(-${to * 1.05}em)`;
+      col.addEventListener('transitionend', () => col.classList.remove('rolling'), { once: true });
     }
   }
+
+  // ---------- list animation: new rows fade in at the top, existing rows slide to their new place (FLIP, 250ms)
+  const rowKey = r => String(r.id != null ? r.id : r.kind + ':' + r.mint + ':' + r.ts);
+  function syncRows(host, rows) {
+    if (!rows.length) { host.innerHTML = `<div class="empty">Nothing yet tonight</div>`; return; }
+    let list = host.querySelector('.alist');
+    const first = !list;
+    if (!list) { host.innerHTML = '<div class="alist"></div>'; list = host.firstChild; }
+    const before = new Map(), old = new Map();
+    for (const ch of list.children) { before.set(ch.dataset.k, ch.getBoundingClientRect().top); old.set(ch.dataset.k, ch); }
+    const tmp = document.createElement('div');
+    const els = rows.map(r => {
+      const k = rowKey(r);
+      tmp.innerHTML = activityRow(r);
+      const n = tmp.firstElementChild; n.dataset.k = k;
+      const o = old.get(k);
+      if (o) { old.delete(k); if (o.innerHTML !== n.innerHTML) o.innerHTML = n.innerHTML; o.dataset.go = n.dataset.go; return o; }
+      n._new = true; return n;
+    });
+    old.forEach(o => o.remove());
+    els.forEach((e, i) => { if (list.children[i] !== e) list.insertBefore(e, list.children[i] || null); });
+    if (RM) { els.forEach(e => { e._new = false; }); return; }
+    let j = 0;
+    els.forEach(e => {
+      if (e._new) {
+        e._new = false;
+        e.style.animationDelay = first ? (j++ * 50) + 'ms' : '0ms';
+        e.classList.add('rin');
+        e.addEventListener('animationend', () => { e.classList.remove('rin'); e.style.animationDelay = ''; }, { once: true });
+      } else if (before.has(e.dataset.k)) {
+        const d = before.get(e.dataset.k) - e.getBoundingClientRect().top;
+        if (Math.abs(d) > 0.5) {
+          e.style.transition = 'none'; e.style.transform = `translateY(${d}px)`; e.getBoundingClientRect();
+          e.style.transition = 'transform 250ms ease-out'; e.style.transform = '';
+          e.addEventListener('transitionend', () => { e.style.transition = ''; }, { once: true });
+        }
+      }
+    });
+  }
+  const liveTag = () => `<span class="livetag${S.failing ? ' off' : ''}"><i></i>LIVE</span>`;
+  const syncLive = () => document.querySelectorAll('.livetag').forEach(t => t.classList.toggle('off', !!S.failing));
 
   // ---------- states
   const skel = (h, w, mt) => `<div class="skel" style="height:${h}px;${w ? 'width:' + w + ';' : ''}margin:${mt || 0}px 16px 0"></div>`;
@@ -84,7 +127,9 @@
   setInterval(setError, 1000);
 
   // ---------- navigation
+  const TABS = ['home', 'agents', 'activity', 'account'];
   function show(screen) {
+    const prevScreen = S.screen;
     S.screen = screen;
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === 's-' + screen));
     if (['home', 'agents', 'activity', 'account'].includes(screen)) {
@@ -93,6 +138,13 @@
     }
     window.scrollTo(0, 0);
     render();
+    const sec = $('#s-' + screen);
+    if (!RM && sec && prevScreen !== screen) {
+      // detail screens push in from the right, going back pops from the left, tabs slide up (300ms ease-out)
+      const cls = !TABS.includes(screen) ? 'tr-push' : !TABS.includes(prevScreen) ? 'tr-pop' : 'tr-up';
+      sec.classList.remove('tr-push', 'tr-pop', 'tr-up'); void sec.offsetWidth; sec.classList.add(cls);
+      sec.addEventListener('animationend', () => sec.classList.remove(cls), { once: true });
+    }
     if (screen === 'activity' && S.activity) loadRowCoins().then(() => { if (S.screen === 'activity') renderActivity(); });
   }
   document.querySelectorAll('#tabbar button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
@@ -112,7 +164,14 @@
     else if (kind === 'invite') invite();
     else show(kind);
   });
-  $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('#sheet').classList.remove('on'); });
+  function closeSheet() {
+    const sh = $('#sheet');
+    if (RM) { sh.classList.remove('on'); return; }
+    sh.classList.add('closing');
+    setTimeout(() => sh.classList.remove('on', 'closing'), 240);
+  }
+  $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+  document.addEventListener('touchstart', () => {}, { passive: true });   // lets iOS show :active press feedback
 
   function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 1800); }
 
@@ -169,14 +228,14 @@
       <div class="search" id="search"><input placeholder="Name, symbol or mint" autocomplete="off" autocapitalize="off"><div id="sres"></div></div></div>`;
   }
 
-  function ringSvg(frac, color, icon) {
+  function ringSvg(frac, color, icon, st) {
     const r = 19, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
-    return `<span class="ring"><svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="3.5"/>
+    return `<span class="ring ${st || ''}"><svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="3.5"/>
       <circle cx="23" cy="23" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-opacity="${f > 0 ? 1 : 0}" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 23 23)"/></svg>
       <span class="ri" style="color:${color}">${icon}</span></span>`;
   }
 
-  const AGC = { scanner: '#64d2ff', auditor: '#00d35a', analyst: '#ffd60a', executor: '#00d35a', risk: '#ff6b9a' };
+  const AGC = { scanner: '#64d2ff', auditor: '#16e08a', analyst: '#ffd60a', executor: '#16e08a', risk: '#ff6b9a' };
   function agentCard(n, a) {
     if (!a) return `<div class="agc skel"></div>`;
     const live = a.alive && !a.paused;
@@ -189,7 +248,7 @@
     } else if (n === 'auditor') {
       const cur = a.current;
       frac = cur && cur.layers ? cur.layers.filter(l => l.pass !== null).length / 8 : 0;
-      if (cur && cur.done && !cur.passed) col = '#ff453a';
+      if (cur && cur.done && !cur.passed) col = '#ff3b30';
       sub = `${a.takenApart} taken apart · ${a.rejected} rejected`;
       status = !cur ? 'No coin taken apart yet' : !cur.done ? `Taking apart ${nm(cur.name, cur.mint)}` : cur.passed ? `${nm(cur.name, cur.mint)} · 8/8 cleared` : `${nm(cur.name, cur.mint)} · ${esc(cur.reason)}`;
       go = 'auditor:' + (cur ? esc(cur.mint) : '');
@@ -210,7 +269,7 @@
     }
     const names = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk' };
     return `<div class="agc ${n === 'risk' ? 'wide' : ''}" data-go="${go}">
-      <div class="agtop">${ringSvg(frac, col, ICON[n])}${n === 'risk' ? `<div class="agtx"><div class="agn">${names[n]}</div><div class="ags">${sub}</div></div>` : ''}</div>
+      <div class="agtop">${ringSvg(frac, col, ICON[n], live ? 'run' : a.paused ? 'paused' : 'dead')}${n === 'risk' ? `<div class="agtx"><div class="agn">${names[n]}</div><div class="ags">${sub}</div></div>` : ''}</div>
       ${n === 'risk' ? '' : `<div class="agn">${names[n]}</div><div class="ags">${sub}</div>`}
       <div class="agst ${live ? '' : 'off'}"><i></i><span>${a.paused ? 'Paused' : !a.alive ? 'Offline' : ''}${a.paused || !a.alive ? ' · ' : ''}${status}</span></div></div>`;
   }
@@ -272,7 +331,7 @@
         <div class="sub"><span id="today"></span><span class="pill mult" id="mult"></span></div></div>
         <div class="chartwrap" id="homechart"></div><div class="ranges" id="ranges"></div>
         <div class="section"><h2>Agents</h2><span class="sk up" id="agrun"></span></div><div class="agrid" id="agrid"></div>
-        <div class="section"><h2>Activity</h2><button class="sk up" data-go="activity" id="trades"></button></div><div id="last5"></div>`;
+        <div class="section"><h2>Activity ${liveTag()}</h2><button class="sk up" data-go="activity" id="trades"></button></div><div id="last5"></div>`;
       el.dataset.built = '1';
       $('#search input').addEventListener('input', searchNow);
     } else {
@@ -300,7 +359,8 @@
     const ex = st.agents.executor;
     $('#trades').textContent = `${ex ? ex.trades : 0} trade${ex && ex.trades === 1 ? '' : 's'}`;
     const rows = (S.activity && S.activity.rows || []).slice(0, 5);
-    $('#last5').innerHTML = rows.length ? `<div class="alist">${rows.map(activityRow).join('')}</div>` : `<div class="empty">Nothing yet tonight</div>`;
+    syncRows($('#last5'), rows);
+    syncLive();
   }
 
   function searchNow() {
@@ -320,7 +380,7 @@
     let h = topbar('', { right: modePill(st && st.mode) || undefined }) + `<div class="lgtitle">Agents${st ? ` <span class="sk up">${st.running} running</span>` : ''}</div>`;
     if (!st || !ag) { el.innerHTML = h + [1, 2, 3].map(() => skel(220, '', 12)).join(''); return; }
     const names = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk' };
-    const colors = { scanner: '#64d2ff', auditor: '#fff', analyst: '#ffd60a', executor: '#00d35a', risk: '#ff6b9a' };
+    const colors = { scanner: '#64d2ff', auditor: '#fff', analyst: '#ffd60a', executor: '#16e08a', risk: '#ff6b9a' };
     h += ['scanner', 'auditor', 'analyst', 'executor', 'risk'].map(n => {
       const a = st.agents[n], d = ag[n];
       const locked = n === 'risk' && a.locked;
@@ -343,12 +403,16 @@
   function renderActivity() {
     const el = $('#s-activity');
     const tr = S.state && S.state.agents.executor ? S.state.agents.executor.trades : null;
-    let h = topbar('') + `<div class="lgtitle">Activity${tr != null ? ` <span class="sk up">${tr} trade${tr === 1 ? '' : 's'}</span>` : ''}</div>`;
-    if (!S.activity) { el.innerHTML = h + [1, 2, 3, 4].map(() => skel(60, '', 8)).join(''); return; }
+    if (!S.activity) { el.innerHTML = topbar('') + `<div class="lgtitle">Activity</div>` + [1, 2, 3, 4].map(() => skel(60, '', 8)).join(''); delete el.dataset.built; return; }
+    if (!el.dataset.built) {
+      el.innerHTML = topbar('') + `<div class="lgtitle">Activity <span class="sk up" id="acttr"></span>${liveTag()}</div><div id="actlist"></div><div id="actmore"></div>`;
+      el.dataset.built = '1';
+    }
+    $('#acttr').textContent = tr != null ? `${tr} trade${tr === 1 ? '' : 's'}` : '';
     const rows = S.activity.rows, n = S.actPage * (S.activity.pageSize || 30);
-    h += rows.length ? `<div class="alist">${rows.slice(0, n).map(activityRow).join('')}</div>` + (rows.length > n ? `<button class="cta ghost" data-go="more">Show more</button>` : '')
-      : `<div class="empty">Nothing yet tonight</div>`;
-    el.innerHTML = h;
+    syncRows($('#actlist'), rows.slice(0, n));
+    $('#actmore').innerHTML = rows.length > n ? `<button class="cta ghost" data-go="more">Show more</button>` : '';
+    syncLive();
   }
 
   // ---------- ACCOUNT
@@ -486,7 +550,10 @@
     await Promise.all(want.map(m => get('coin/' + m + '.json').then(c => { c._ok = true; S.coin[m] = c; }).catch(() => { S.noCoin[m] = 1; })));
   }
 
+  let pollT = null, polling = false;
   async function poll() {
+    if (polling) return;
+    polling = true; clearTimeout(pollT);
     try {
       const [state, chart, activity, agents, account, coins] = await Promise.all(
         ['state.json', 'chart.json', 'activity.json', 'agents.json', 'account.json', 'coins.json'].map(get));
@@ -502,9 +569,11 @@
     S.nextTry = Date.now() + POLL_S * 1000;
     setError();
     render();
-    if (!S.failing) { await loadRowCoins(); render(); }
-    setTimeout(poll, POLL_S * 1000);
+    if (!S.failing) { try { await loadRowCoins(); } catch (e) { /* keep going */ } render(); }
+    polling = false;
+    pollT = setTimeout(poll, POLL_S * 1000);
   }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); });
 
   if (!BASE) {
     $('#err').textContent = 'Desk offline · open the desk link from Telegram once · retrying in 15s · last update never';
