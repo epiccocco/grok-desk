@@ -169,5 +169,81 @@
     ctx.fillText(score == null ? '–' : String(score), cx, cy);
   }
 
-  W.DeskChart = { line, candles, ring, reducedMotion: RM };
+  // ---------- SVG area chart with event bubbles (v2 home)
+  // data {points:[[ts,v]], start, events:[{ts, kind, name, mint, label, color}]}
+  const BCOL = { green: '#00d35a', red: '#ff453a', blue: '#0a84ff' };
+  function hue(s) { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; }
+  function initials(n) { const w = String(n || '?').replace(/[^A-Za-z0-9 ]/g, '').trim().split(/\s+/); return ((w[0] || '?')[0] + (w[1] ? w[1][0] : (w[0] || '').slice(1, 2))).toUpperCase(); }
+  function avatar(name, mint, size) {
+    const h = hue(mint || name);
+    return `<span class="cav" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.38)}px;background:linear-gradient(135deg,hsl(${h},70%,52%),hsl(${(h + 40) % 360},70%,34%))">${initials(name).replace(/[<>&]/g, '')}</span>`;
+  }
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function area(el, data, opt) {
+    opt = opt || {};
+    const w = el.clientWidth || 358, H = opt.height || 300;
+    const pts = (data && data.points) || [];
+    if (pts.length < 2) {
+      el.style.height = H + 'px';
+      el.innerHTML = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><line x1="0" x2="${w}" y1="${H * 0.62}" y2="${H * 0.62}" stroke="rgba(235,235,245,.25)" stroke-dasharray="3 5"/></svg>
+        <div class="chartmsg" style="top:${H * 0.62 - 44}px">Waiting for the first trade</div>`;
+      return;
+    }
+    const minX = pts[0][0], maxX = pts[pts.length - 1][0];
+    const X = t => maxX === minX ? w - 6 : 4 + (t - minX) / (maxX - minX) * (w - 10);
+    // events in range, newest first get priority for a lane
+    const evs = ((data.events) || []).filter(e => e.ts >= minX - 1 && e.ts <= maxX + 1).sort((a, b) => b.ts - a.ts).slice(0, 8);
+    const BH = 40, GAP = 8, LANE = BH + 10, LANES = 3;
+    const lanes = Array.from({ length: LANES }, () => []);
+    const placed = [];
+    for (const e of evs) {
+      const txt = Math.max(String(e.name).length, String(e.label).length);
+      const bw = Math.min(150, Math.max(92, 38 + txt * 6.6));
+      const cx = X(e.ts);
+      const x0 = Math.max(0, Math.min(w - bw, cx - bw / 2));
+      let lane = -1;
+      for (let i = 0; i < LANES; i++) {
+        if (!lanes[i].some(b => !(x0 + bw + GAP <= b.x0 || x0 >= b.x0 + b.w + GAP))) { lane = i; break; }
+      }
+      if (lane < 0) continue;
+      const b = { x0, w: bw, lane, e, cx };
+      lanes[lane].push(b); placed.push(b);
+    }
+    const used = placed.length ? Math.max(...placed.map(b => b.lane)) + 1 : 0;
+    const top = used ? used * LANE + 26 : 26, bot = H - 6;
+    let ys = pts.map(p => p[1]);
+    if (data.start != null) ys = ys.concat([data.start]);
+    let lo = Math.min(...ys), hi = Math.max(...ys);
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+    const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+    const Y = v => bot - (v - lo) / (hi - lo) * (bot - top);
+    const P = pts.map(p => [X(p[0]), Y(p[1])]);
+    const line = P.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('');
+    const areaD = line + `L${P[P.length - 1][0].toFixed(1)} ${H}L${P[0][0].toFixed(1)} ${H}Z`;
+    const up = pts[pts.length - 1][1] >= (data.start != null ? data.start : pts[0][1]);
+    const col = up ? '#00d35a' : '#ff453a';
+    const gid = 'g' + Math.random().toString(36).slice(2, 7);
+    const valueAt = t => { let b = pts[0]; for (const p of pts) { if (p[0] <= t) b = p; else break; } return b[1]; };
+    let svg = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${col}" stop-opacity=".32"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>`;
+    if (data.start != null) svg += `<line x1="0" x2="${w}" y1="${Y(data.start).toFixed(1)}" y2="${Y(data.start).toFixed(1)}" stroke="rgba(235,235,245,.22)" stroke-dasharray="3 5"/>`;
+    svg += `<path d="${areaD}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    let html = '';
+    for (const b of placed) {
+      const c = BCOL[b.e.color] || BCOL.blue;
+      const dy = Y(valueAt(b.e.ts)), by = 6 + b.lane * LANE + BH;
+      const lx = Math.max(b.x0 + 12, Math.min(b.x0 + b.w - 12, b.cx));
+      svg += `<path d="M${lx.toFixed(1)} ${by}L${b.cx.toFixed(1)} ${(dy - 5).toFixed(1)}" stroke="${c}" stroke-opacity=".7" stroke-width="1.2" stroke-dasharray="1.5 3.5" fill="none" stroke-linecap="round"/>`;
+      svg += `<circle cx="${b.cx.toFixed(1)}" cy="${dy.toFixed(1)}" r="4.5" fill="#000" stroke="${c}" stroke-width="2"/>`;
+      html += `<div class="bub" data-go="coin:${escH(b.e.mint)}" style="left:${b.x0.toFixed(1)}px;top:${6 + b.lane * LANE}px;width:${b.w.toFixed(0)}px;border-color:${c}">
+        ${avatar(b.e.name, b.e.mint, 24)}<span class="bt"><b>${escH(b.e.name)}</b><i style="color:${c}">${escH(b.e.label)}</i></span></div>`;
+    }
+    const L = P[P.length - 1];
+    svg += `<circle class="pulse" cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="9" fill="${col}" fill-opacity=".25"/><circle cx="${L[0].toFixed(1)}" cy="${L[1].toFixed(1)}" r="4" fill="${col}"/></svg>`;
+    el.style.height = H + 'px';
+    el.innerHTML = svg + html;
+  }
+
+  W.DeskChart = { line, area, avatar, candles, ring, reducedMotion: RM };
 })(window);

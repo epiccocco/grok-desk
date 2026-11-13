@@ -38,6 +38,10 @@
     const s = p.toPrecision(4);
     return '$' + (p < 1e-4 ? Number(s).toExponential(3) : Number(s).toString());
   }
+  function priceHtml(p) {
+    const t = price(p), m = t.match(/^(\$\d*\.?\d*?)(\d{2})$/);
+    return p != null && p < 1 && m && !/e/.test(t) ? `${esc(m[1])}<span class="cents">${m[2]}</span>` : esc(t);
+  }
   const fomoA = (href, label, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" target="_blank" rel="noopener">${label}</a>` : '';
 
   // ---------- odometer: each changed digit rolls 600ms ease-out, 30ms stagger right to left
@@ -93,6 +97,7 @@
     }
     window.scrollTo(0, 0);
     render();
+    if (screen === 'activity' && S.activity) loadRowCoins().then(() => { if (S.screen === 'activity') renderActivity(); });
   }
   document.querySelectorAll('#tabbar button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
   document.addEventListener('click', e => {
@@ -102,9 +107,10 @@
     const [kind, arg] = t.dataset.go.split(':');
     if (kind === 'coin') { S.coinMint = arg; show('coin'); loadCoin(arg); }
     else if (kind === 'auditor') { S.auditMint = arg || null; show('auditor'); if (arg) loadCoin(arg); }
-    else if (kind === 'back') show(S.tab);
+    else if (kind === 'back') show(S.screen === S.tab ? 'home' : S.tab);
+    else if (kind === 'top') window.scrollTo({ top: 0, behavior: RM ? 'auto' : 'smooth' });
     else if (kind === 'range') { S.range = arg; renderHome(); }
-    else if (kind === 'more') { S.actPage++; renderActivity(); }
+    else if (kind === 'more') { S.actPage++; renderActivity(); loadRowCoins().then(renderActivity); }
     else if (kind === 'search') { const s = $('#search'); s.classList.toggle('on'); if (s.classList.contains('on')) $('#search input').focus(); }
     else if (kind === 'bell') openPushes();
     else if (kind === 'invite') invite();
@@ -134,124 +140,170 @@
     renderHome();
   }
 
-  // ---------- HOME
+  // ---------- HOME (v2 "terminal" layout)
+  const ICON = {
+    back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+    search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
+    bell: '<svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/></svg>',
+    scanner: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>',
+    auditor: '<svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+    analyst: '<svg viewBox="0 0 24 24"><path d="M4 19h16"/><path d="M7 16v-4M12 16V7M17 16v-7"/></svg>',
+    executor: '<svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>',
+    risk: '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  };
+  const AV = (n, m, s) => window.DeskChart.avatar(n, m, s);
+  const botAvatar = `<span class="botav"><svg viewBox="0 0 32 32"><path d="M9 23L21 9M13 9h10v10" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+
+  function topbar(title, opts) {
+    opts = opts || {};
+    return `<div class="topbar"><button class="iconbtn" data-go="${opts.back || 'back'}" aria-label="Back">${ICON.back}</button>
+      <div class="ttl">${esc(title)}</div>${opts.right != null ? opts.right : '<span style="width:44px"></span>'}</div>`;
+  }
+  function modePill(mode) {
+    return mode === 'PAPER' ? '<span class="mpill paper"><i></i>Paper</span>' : mode ? '<span class="mpill live"><i></i>Live</span>' : '';
+  }
   function navbar() {
     const seen = +(localStorage.getItem('desk_seen') || 0);
     const unread = ((S.state && S.state.pushes) || []).some(p => p.ts > seen);
-    return `<div class="nav">
-      <button class="avatar" data-go="account" aria-label="Account">C</button>
-      <button class="title" data-go="account" style="min-height:44px">Grok Bot ›</button><div class="grow"></div>
-      <button class="iconbtn" data-go="search" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
-      <button class="iconbtn" data-go="bell" aria-label="Pushes"><svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/></svg>${unread ? '<i class="dot"></i>' : ''}</button>
-    </div><div class="search" id="search"><input placeholder="Name, symbol or mint" autocomplete="off" autocapitalize="off"><div id="sres"></div></div>`;
+    return `<div class="navwrap">${topbar('Grok Terminal', { back: 'top', right: '<button class="sharebtn" data-go="invite">Share</button>' })}
+      <div class="botrow"><button class="botbtn" data-go="account">${botAvatar}<span class="bn">Grok Bot</span><span class="chevr">›</span></button>
+        <span id="modepill">${modePill(S.state && S.state.mode)}</span><div class="grow"></div>
+        <button class="iconbtn sm" data-go="search" aria-label="Search">${ICON.search}</button>
+        <button class="iconbtn sm" data-go="bell" aria-label="Pushes">${ICON.bell}${unread ? '<i class="dot"></i>' : ''}</button></div>
+      <div class="search" id="search"><input placeholder="Name, symbol or mint" autocomplete="off" autocapitalize="off"><div id="sres"></div></div></div>`;
   }
 
-  function cardSize() {
-    const w = Math.min(window.innerWidth, 600) - 32;
-    return `width:${w}px;height:${Math.round(w * 470 / 504)}px;border-radius:${(42 * w / 504).toFixed(1)}px`;
+  function ringSvg(frac, color, icon) {
+    const r = 19, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
+    return `<span class="ring"><svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="3.5"/>
+      <circle cx="23" cy="23" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${(c * f).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 23 23)"/></svg>
+      <span class="ri" style="color:${color}">${icon}</span></span>`;
   }
 
-  function agentCard(n, a, full) {
-    const style = full ? 'width:100%;border-radius:22px' : cardSize();
-    const dot = `<i class="sdot ${a && a.alive && !a.paused ? '' : 'off'}"></i>`;
-    if (!a) return `<div class="acard skel" style="${style}"></div>`;
+  const AGC = { scanner: '#64d2ff', auditor: '#00d35a', analyst: '#ffd60a', executor: '#00d35a', risk: '#ff6b9a' };
+  function agentCard(n, a) {
+    if (!a) return `<div class="agc skel"></div>`;
+    const live = a.alive && !a.paused;
+    let frac = 0, sub = '', status = '', go = 'agents', col = AGC[n];
     if (n === 'scanner') {
-      const feed = (a.feed || []).map(f => f.verdict === 'kill'
-        ? `<div class="r killed"><span class="n">${nm(f.name, f.mint)}</span><span class="why">${esc(f.reason)}</span></div>`
-        : `<div class="r"><span class="n">${nm(f.name, f.mint)} · liq ${kfmt(f.liq)} · → auditor</span></div>`).join('');
-      return `<div class="acard" style="${style}"><div class="hd">${dot}<span class="nm" style="color:#64d2ff">Scanner</span></div>
-        <div class="big">${a.pools} pools</div><div class="lbl">${a.room} in the waiting room · ${a.passed} passed · ${a.killed} killed</div>
-        <div class="feed">${feed || '<div class="muted">Listening for graduations</div>'}</div></div>`;
-    }
-    if (n === 'auditor') {
+      const tot = (a.passed || 0) + (a.killed || 0);
+      frac = tot ? a.passed / tot : (live ? 0.08 : 0);
+      sub = `${a.pools} pools · ${a.room} waiting`;
+      status = `${a.killed} killed · ${a.passed} passed`;
+    } else if (n === 'auditor') {
       const cur = a.current;
-      const strips = Array.from({ length: 8 }, (_, i) => {
-        const l = cur && cur.layers && cur.layers[i];
-        const c = !l ? (cur && !cur.done && cur.layers && i === cur.layers.length ? 'scan' : '') : l.pass === true ? 'ok' : l.pass === false ? 'bad' : '';
-        return `<div class="strip ${c}"></div>`;
-      }).join('');
-      const status = !cur ? 'No coin taken apart yet' : !cur.done ? `taking apart ${nm(cur.name, cur.mint)}...` : cur.passed ? `${nm(cur.name, cur.mint)} · 8/8 → Executor` : `${nm(cur.name, cur.mint)} · ${esc(cur.reason)}`;
-      return `<div class="acard" style="${style}" data-go="auditor:${cur ? esc(cur.mint) : ''}"><div class="hd">${dot}<span class="nm">Auditor</span></div>
-        <div class="big">${a.takenApart} taken apart</div><div class="strips">${strips}</div>
-        <div class="lbl" style="margin-top:12px">${status}</div><div class="lbl" style="margin-top:6px">${a.rejected} rejected</div></div>`;
-    }
-    if (n === 'analyst') {
-      return `<div class="acard" style="${style}"><div class="hd">${dot}<span class="nm" style="color:#ffd60a">Analyst</span><span class="lbl"> · rules</span></div>
-        <div class="big">Scoring</div><div style="display:flex;align-items:center;gap:16px;margin-top:8px"><canvas class="ring" data-score="${a.last ? a.last.score : ''}" data-th="${a.minScore}"></canvas>
-        <div class="lbl">${a.last ? nm(a.last.name, a.last.mint) + '<br>' + (a.last.passed ? 'passed' : 'rejected') : 'Nothing scored yet'}<br>${a.scored} scored tonight</div></div></div>`;
-    }
-    if (n === 'executor') {
+      frac = cur && cur.layers ? cur.layers.filter(l => l.pass !== null).length / 8 : 0;
+      if (cur && cur.done && !cur.passed) col = '#ff453a';
+      sub = `${a.takenApart} taken apart · ${a.rejected} rejected`;
+      status = !cur ? 'No coin taken apart yet' : !cur.done ? `Taking apart ${nm(cur.name, cur.mint)}` : cur.passed ? `${nm(cur.name, cur.mint)} · 8/8 cleared` : `${nm(cur.name, cur.mint)} · ${esc(cur.reason)}`;
+      go = 'auditor:' + (cur ? esc(cur.mint) : '');
+    } else if (n === 'analyst') {
+      frac = a.last ? a.last.score / 100 : 0;
+      if (a.last && !a.last.passed) col = '#ff9f0a';
+      sub = `${esc(a.mode)} · min ${a.minScore} · ${a.scored} scored`;
+      status = a.last ? `${nm(a.last.name, a.last.mint)} · ${a.last.score} ${a.last.passed ? 'passed' : 'rejected'}` : 'Nothing scored yet';
+    } else if (n === 'executor') {
       const l = a.last;
-      let bar = '';
-      if (l) {
-        if (l.status === 'bought') bar = `<div class="bar"><i style="width:100%"></i></div><div class="lbl" style="margin-top:6px">✓ Filled</div>`;
-        else if (l.status === 'sent') { const p = Math.min(99, Math.round((Date.now() / 1000 - l.ts) / 3)); bar = `<div class="bar"><i style="width:${p}%"></i></div><div class="lbl" style="margin-top:6px">Executing... ${p}%</div>`; }
-      }
-      return `<div class="acard" style="${style}"><div class="hd">${dot}<span class="nm" style="color:#00d35a">Executor</span></div>
-        <div class="big">${a.trades} trades</div><div class="lbl">${l ? usd(l.size) + ' · ' + (+l.pct).toFixed(1).replace(/\.0$/, '') + '% of stack · ' + nm(l.name, l.mint) : 'Size: ' + a.stackPct + '% of stack'}</div>${bar}</div>`;
+      frac = !l ? 0 : l.status === 'bought' ? 1 : Math.min(0.99, (Date.now() / 1000 - l.ts) / 300);
+      sub = `${a.trades} trade${a.trades === 1 ? '' : 's'} · size ${fmtN(a.stackPct)}%`;
+      status = l ? `${l.status === 'bought' ? 'Filled' : 'Executing'} ${nm(l.name, l.mint)} · ${usd(l.size)}` : 'Waiting for a signal';
+    } else if (n === 'risk') {
+      frac = a.open ? 1 : 0;
+      sub = `stop −${fmtN(a.stopPct)}% · trail ${fmtN(a.trailPct)}%`;
+      status = `${esc(a.state)} · ${a.open} open${a.last ? ' · last ' + nm(a.last.name, a.last.mint) + ' ' + esc(a.last.reason) : ''}`;
     }
-    if (n === 'risk') {
-      return `<div class="acard" style="${style}"><div class="hd">${dot}<span class="nm" style="color:#ff6b9a">Risk</span></div>
-        <div class="big">${esc(a.state)}</div><div class="lbl">${a.open} open position${a.open === 1 ? '' : 's'}${a.last ? ' · last ' + nm(a.last.name, a.last.mint) + ' ' + esc(a.last.reason) : ''}</div>
-        <div style="display:flex;gap:8px;margin-top:14px"><span class="tp r">stop -${fmtN(a.stopPct)}%</span><span class="tp g">trail ${fmtN(a.trailPct)}%</span></div></div>`;
-    }
-    return '';
+    const names = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk' };
+    return `<div class="agc ${n === 'risk' ? 'wide' : ''}" data-go="${go}">
+      <div class="agtop">${ringSvg(frac, col, ICON[n])}${n === 'risk' ? `<div class="agtx"><div class="agn">${names[n]}</div><div class="ags">${sub}</div></div>` : ''}</div>
+      ${n === 'risk' ? '' : `<div class="agn">${names[n]}</div><div class="ags">${sub}</div>`}
+      <div class="agst ${live ? '' : 'off'}"><i></i><span>${a.paused ? 'Paused' : !a.alive ? 'Offline' : ''}${a.paused || !a.alive ? ' · ' : ''}${status}</span></div></div>`;
   }
   const fmtN = v => String(+(+v).toFixed(2));
 
-  function drawRings(root) {
-    root.querySelectorAll('canvas.ring').forEach(cv => {
-      const s = cv.dataset.score === '' ? null : +cv.dataset.score;
-      window.DeskChart.ring(cv, s, +cv.dataset.th || 70, 96);
-    });
+  // activity row helpers
+  const AGN = { executor: 'Executor', risk: 'Risk', auditor: 'Auditor', analyst: 'Analyst', scanner: 'Scanner' };
+  function coinName(r) { return r.title.indexOf(' ') > 0 ? r.title.slice(r.title.indexOf(' ') + 1) : r.title; }
+  function rowParts(r) {
+    const parts = String(r.value || '').split(' · ');
+    const sp = String(r.subtitle || '').split(' · ');
+    let reason = sp.slice(1).filter(x => !/^\d{1,2}:\d{2}$/.test(x)).join(' · ');
+    if (!reason && r.kind === 'bought') reason = parts[1] || 'entry';
+    const c = S.coin[r.mint];
+    const mc = c && c._ok && c.stats ? c.stats.marketCap : null;
+    let under = '';
+    if (r.kind === 'sold' || r.kind === 'stopped') {
+      const pos = c && c.position;
+      under = parts[1] || (pos && pos.pnlUsd != null && pos.sizeUsd ? pct(100 * pos.pnlUsd / pos.sizeUsd, 1) : (mc != null ? 'MC ' + kfmt(mc) : ''));
+    } else if (r.kind === 'bought') under = mc != null ? 'MC ' + kfmt(mc) : '';
+    return { amount: parts[0], under, reason, agent: AGN[r.agent] || sp[0] || '' };
+  }
+  function activityRow(r) {
+    const badge = { bought: ['b', '↓'], sold: ['g', '↑'], stopped: ['r', '!'], rejected: ['x', '×'] }[r.kind] || ['x', '·'];
+    const p = rowParts(r);
+    const neg = String(p.amount).startsWith('-');
+    const vcol = r.kind === 'sold' ? (neg ? 'down' : 'up') : r.kind === 'stopped' ? 'down' : r.kind === 'rejected' ? 'muted' : '';
+    const ucol = /^\+/.test(p.under) ? 'up' : /^-/.test(p.under) ? 'down' : 'muted';
+    return `<div class="arow" data-go="${r.opens}:${esc(r.mint)}"><span class="avw">${AV(coinName(r), r.mint, 40)}<span class="bdg ${badge[0]}">${badge[1]}</span></span>
+      <div class="m"><div class="t">${esc(r.title)}</div><div class="s">${esc([p.agent, p.reason, hm(r.ts)].filter(Boolean).join(' · '))}</div></div>
+      <div class="v"><div class="amt ${vcol}">${esc(p.amount)}</div>${p.under ? `<div class="und ${ucol}">${esc(p.under)}</div>` : ''}</div></div>`;
   }
 
-  function activityRow(r) {
-    const cls = r.kind === 'bought' ? 'background:rgba(10,132,255,.18);color:#0a84ff' : r.kind === 'sold' ? 'background:rgba(0,211,90,.16);color:#00d35a'
-      : r.kind === 'stopped' ? 'background:rgba(255,69,58,.16);color:#ff453a' : 'background:#2c2c2e;color:rgba(235,235,245,.6)';
-    const ic = { bought: '↓', sold: '↑', stopped: '!', rejected: '×' }[r.kind] || '·';
-    const vcol = r.kind === 'sold' && String(r.value).startsWith('+') ? 'up' : (r.kind === 'stopped' || (r.kind === 'sold' && String(r.value).startsWith('-'))) ? 'down' : r.kind === 'rejected' ? 'muted' : '';
-    return `<div class="row" data-go="${r.opens}:${esc(r.mint)}"><div class="ic" style="${cls}">${ic}</div>
-      <div class="m"><div class="t">${esc(r.title)}</div><div class="s">${esc(r.subtitle)}</div></div><div class="v ${vcol}">${esc(r.value)}</div></div>`;
+  // chart events from activity rows (same ts as chart marks)
+  function chartEvents() {
+    const rows = (S.activity && S.activity.rows) || [];
+    return rows.filter(r => ['bought', 'sold', 'stopped'].includes(r.kind)).map(r => {
+      const amt = String(r.value || '').split(' · ')[0];
+      const label = r.kind === 'bought' ? 'bought ' + amt : r.kind === 'sold' ? 'sold ' + amt : 'stop ' + amt.replace(/^-/, '−');
+      const color = r.kind === 'bought' ? 'blue' : r.kind === 'stopped' || amt.startsWith('-') ? 'red' : 'green';
+      return { ts: r.ts, kind: r.kind, mint: r.mint, name: coinName(r), label, color };
+    });
   }
 
   function renderHome() {
     const el = $('#s-home');
     const st = S.state;
     if (!st) {
-      el.innerHTML = navbar() + `<div class="hero">${skel(70, '70%', 6)}${skel(18, '40%', 10)}</div>${skel(220, '', 16)}${skel(44, '', 10)}
-        <div class="section"><h2>Agents</h2></div><div class="carousel"><div class="acard skel" style="${cardSize()}"></div></div>
+      el.innerHTML = navbar() + `<div class="hero">${skel(16, '40%', 4)}${skel(64, '75%', 12)}${skel(18, '50%', 10)}</div>${skel(260, '', 16)}${skel(36, '', 12)}
+        <div class="section"><h2>Agents</h2></div><div class="agrid"><div class="agc skel"></div><div class="agc skel"></div></div>
         <div class="section"><h2>Activity</h2></div>${skel(60, '', 0)}${skel(60, '', 8)}`;
+      delete el.dataset.built;
       return;
     }
     const keepSearch = $('#search') && $('#search').classList.contains('on') ? $('#search input').value : null;
     if (!el.dataset.built) {
-      el.innerHTML = navbar() + `<div class="hero"><div class="balrow"><div class="balance" id="bal"></div><span id="paperb"></span></div>
+      el.innerHTML = navbar() + `<div class="hero"><div class="meta" id="meta"></div>
+        <div class="balance"><span id="bal"></span><span class="cents" id="balc"></span></div>
         <div class="sub"><span id="today"></span><span class="pill mult" id="mult"></span></div></div>
-        <div class="chartwrap"><canvas id="homechart"></canvas></div><div class="ranges" id="ranges"></div>
-        <div class="section"><h2 id="agtitle">Agents</h2></div><div class="carousel" id="carousel"></div>
-        <div class="section"><h2>Activity</h2><button data-go="activity">See all</button></div><div id="last5"></div>`;
+        <div class="chartwrap" id="homechart"></div><div class="ranges" id="ranges"></div>
+        <div class="section"><h2>Agents</h2><span class="sk up" id="agrun"></span></div><div class="agrid" id="agrid"></div>
+        <div class="section"><h2>Activity</h2><button class="sk up" data-go="activity" id="trades"></button></div><div id="last5"></div>`;
       el.dataset.built = '1';
       $('#search input').addEventListener('input', searchNow);
     } else {
       const nb = document.createElement('div'); nb.innerHTML = navbar();
       el.replaceChild(nb.firstElementChild, el.firstElementChild);
+      $('#search input').addEventListener('input', searchNow);
     }
-    if (keepSearch != null) { $('#search').classList.add('on'); }
-    odometer($('#bal'), usd(st.balance));
-    $('#paperb').innerHTML = st.mode === 'PAPER' ? '<span class="pill paper">PAPER</span>' : '';
-    $('#today').className = st.todayPct >= 0 ? 'up' : 'down';
-    $('#today').textContent = pct(st.todayPct) + ' today';
+    if (keepSearch != null) { $('#search').classList.add('on'); $('#search input').value = keepSearch; searchNow(); }
+    const open = (st.positions || []).length;
+    $('#meta').innerHTML = `fomo · ${open} open<span class="tm">${hm(st.ts)}</span>`;
+    const b = usd(st.balance), dot = b.lastIndexOf('.');
+    odometer($('#bal'), dot > 0 ? b.slice(0, dot) : b);
+    odometer($('#balc'), dot > 0 ? b.slice(dot) : '');
+    const diff = st.balance - (st.nightStartBalance || st.balance);
+    $('#today').className = diff >= 0 ? 'up' : 'down';
+    $('#today').textContent = `${diff >= 0 ? '▲' : '▼'} ${usd(Math.abs(diff))} (${Math.abs(st.todayPct).toFixed(2)}%)`;
     $('#mult').textContent = st.multiplier.toFixed(2) + '×';
+    $('#mult').className = 'pill mult' + (st.multiplier < 1 ? ' neg' : '');
     $('#ranges').innerHTML = ['LIVE', '1H', '4H', '1D', '1W', 'ALL'].map(r => `<button data-go="range:${r}" class="${S.range === r ? 'on' : ''}">${r}</button>`).join('');
     const ch = S.chart && S.chart.ranges[S.range];
-    window.DeskChart.line($('#homechart'), ch ? { points: ch.points, marks: ch.marks, start: S.chart.start } : null, { height: 220, range: S.range });
-    $('#agtitle').textContent = `Agents · ${st.running} running`;
-    const A = st.agents;
-    $('#carousel').innerHTML = ['scanner', 'auditor', 'analyst', 'executor', 'risk'].map(n => agentCard(n, A[n])).join('');
-    drawRings($('#carousel'));
+    window.DeskChart.area($('#homechart'), ch ? { points: ch.points, start: S.chart.start, events: chartEvents() } : null, { height: 290, range: S.range });
+    $('#agrun').textContent = `${st.running} running`;
+    $('#agrid').innerHTML = ['scanner', 'auditor', 'analyst', 'executor', 'risk'].map(n => agentCard(n, st.agents[n])).join('');
+    const ex = st.agents.executor;
+    $('#trades').textContent = `${ex ? ex.trades : 0} trade${ex && ex.trades === 1 ? '' : 's'}`;
     const rows = (S.activity && S.activity.rows || []).slice(0, 5);
-    $('#last5').innerHTML = rows.length ? `<div class="list">${rows.map(activityRow).join('')}</div>` : `<div class="empty">Nothing yet tonight</div>`;
+    $('#last5').innerHTML = rows.length ? `<div class="alist">${rows.map(activityRow).join('')}</div>` : `<div class="empty">Nothing yet tonight</div>`;
   }
 
   function searchNow() {
@@ -268,7 +320,7 @@
   function renderAgents() {
     const el = $('#s-agents');
     const st = S.state, ag = S.agents;
-    let h = `<div class="nav"><span class="title" style="font-size:28px;font-weight:700">Agents</span></div>`;
+    let h = topbar('Agents', { right: modePill(st && st.mode) || undefined }) + `<div class="lgtitle">Agents${st ? ` <span class="sk up">${st.running} running</span>` : ''}</div>`;
     if (!st || !ag) { el.innerHTML = h + [1, 2, 3].map(() => skel(220, '', 12)).join(''); return; }
     const names = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk' };
     const colors = { scanner: '#64d2ff', auditor: '#fff', analyst: '#ffd60a', executor: '#00d35a', risk: '#ff6b9a' };
@@ -293,10 +345,11 @@
   // ---------- ACTIVITY
   function renderActivity() {
     const el = $('#s-activity');
-    let h = `<div class="nav"><span class="title" style="font-size:28px;font-weight:700">Activity</span></div>`;
+    const tr = S.state && S.state.agents.executor ? S.state.agents.executor.trades : null;
+    let h = topbar('Activity') + `<div class="lgtitle">Activity${tr != null ? ` <span class="sk up">${tr} trade${tr === 1 ? '' : 's'}</span>` : ''}</div>`;
     if (!S.activity) { el.innerHTML = h + [1, 2, 3, 4].map(() => skel(60, '', 8)).join(''); return; }
     const rows = S.activity.rows, n = S.actPage * (S.activity.pageSize || 30);
-    h += rows.length ? `<div class="list">${rows.slice(0, n).map(activityRow).join('')}</div>` + (rows.length > n ? `<button class="cta" style="background:#1c1c1e;color:#fff" data-go="more">Show more</button>` : '')
+    h += rows.length ? `<div class="alist">${rows.slice(0, n).map(activityRow).join('')}</div>` + (rows.length > n ? `<button class="cta ghost" data-go="more">Show more</button>` : '')
       : `<div class="empty">Nothing yet tonight</div>`;
     el.innerHTML = h;
   }
@@ -305,7 +358,7 @@
   function renderAccount() {
     const el = $('#s-account');
     const a = S.account;
-    let h = `<div class="nav"><span class="title" style="font-size:28px;font-weight:700">Account</span></div>`;
+    let h = topbar('Account', { right: '<button class="sharebtn" data-go="invite">Share</button>' }) + `<div class="botrow big">${botAvatar}<div><div class="bn">Grok Bot</div><div class="muted" style="font-size:13px">FOMO desk · @Grokeasybot</div></div><div class="grow"></div>${modePill(a && a.mode)}</div>`;
     if (!a) { el.innerHTML = h + skel(160, '', 8) + skel(300, '', 16); return; }
     const labels = { scanner: 'Scanner', auditor: 'Auditor', analyst: 'Analyst', executor: 'Executor', risk: 'Risk', desk: 'Desk' };
     const val = (k, v) => typeof v === 'boolean' ? (v ? 'on' : 'off') : (k === 'stop_pct' ? '-' + v + '%' : k.endsWith('_pct') ? v + '%' : k.endsWith('_usd') ? '$' + v : String(v));
@@ -335,7 +388,7 @@
   function renderCoin() {
     const el = $('#s-coin');
     const m = S.coinMint, c = S.coin[m];
-    let h = `<div class="nav"><button class="back" data-go="back">‹ Back</button><div class="grow"></div>${S.state && S.state.mode === 'PAPER' ? '<span class="pill paper">PAPER</span>' : ''}</div>`;
+    let h = topbar(c && c.symbol ? '$' + c.symbol : 'Coin', { right: modePill(S.state && S.state.mode) || undefined });
     if (!c) { el.innerHTML = h + skel(40, '60%', 4) + skel(70, '70%', 10) + skel(240, '', 14) + skel(120, '', 12); return; }
     if (c._missing) { el.innerHTML = h + `<div class="empty">This coin has no desk data yet</div>`; return; }
     const au = c.audit;
@@ -343,9 +396,9 @@
     const age = c.ageH == null ? '' : c.ageH < 1 ? Math.round(c.ageH * 60) + 'm old' : Math.round(c.ageH) + 'h old';
     const pos = c.position;
     const open = pos && pos.open;
-    h += `<div style="padding:0 16px"><div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px;font-weight:700;flex:1">${nm(c.name, c.mint)}</span>${shield}</div>
+    h += `<div style="padding:4px 16px 0"><div style="display:flex;align-items:center;gap:12px">${AV(c.name || c.mint, c.mint, 44)}<span style="font-size:22px;font-weight:700;flex:1">${nm(c.name, c.mint)}</span>${shield}</div>
       <div class="muted" style="margin-top:2px">${esc(c.symbol || '')} · Solana${age ? ' · ' + age : ''}</div>${c.tag ? `<div class="tag">${esc(c.tag)}</div>` : ''}</div>
-      <div class="price">${price(c.price)}</div>
+      <div class="price">${priceHtml(c.price)}</div>
       ${c.sinceEntryPct != null ? `<div style="padding:0 16px" class="${c.sinceEntryPct >= 0 ? 'up' : 'down'}">${c.sinceEntryPct >= 0 ? '▲' : '▼'} ${Math.abs(c.sinceEntryPct).toFixed(2)}% since entry</div>` : ''}
       <div class="chartwrap" style="padding:0 16px"><canvas id="candles"></canvas></div>
       <div class="grid2" style="margin-top:14px">
@@ -366,7 +419,7 @@
         <div class="kv"><span class="k">Time to timeout</span><span class="val">${Math.floor(left / 3600)}h ${Math.floor(left % 3600 / 60)}m</span></div></div>`;
     }
     h += fomoA(c.coin_url, open ? 'Sell on FOMO' : 'Buy on FOMO', 'cta' + (open ? ' sell' : ''));
-    if (au) h += `<button class="cta" style="background:#1c1c1e;color:#fff" data-go="auditor:${esc(c.mint)}">See the audit</button>`;
+    if (au) h += `<button class="cta ghost" data-go="auditor:${esc(c.mint)}">See the audit</button>`;
     el.innerHTML = h;
     window.DeskChart.candles($('#candles'), c.candles, open && c.exit ? { exit: c.exit.line } : null, { height: 240 });
   }
@@ -377,7 +430,7 @@
     let m = S.auditMint;
     if (!m && S.state && S.state.agents.auditor.current) { m = S.auditMint = S.state.agents.auditor.current.mint; loadCoin(m); }
     const c = m && S.coin[m];
-    let h = `<div class="nav"><button class="back" data-go="back">‹ Back</button><div class="grow"></div><span class="title">Auditor</span><div class="grow"></div><span style="width:44px"></span></div>`;
+    let h = topbar('Auditor');
     if (!m) { el.innerHTML = h + `<div class="empty">No coin taken apart yet</div>`; return; }
     if (!c) { el.innerHTML = h + `<div class="discs">${Array.from({ length: 8 }, () => '<div class="disc skel"></div>').join('')}</div>`; return; }
     const au = c.audit;
@@ -426,6 +479,16 @@
     else if (s === 'auditor') renderAuditor();
   }
 
+  // coin files behind activity rows: refresh the home five each poll, fetch others once
+  S.noCoin = {};
+  async function loadRowCoins() {
+    const rows = ((S.activity && S.activity.rows) || []).filter(r => r.opens === 'coin' && r.mint);
+    const home = new Set(rows.slice(0, 5).map(r => r.mint));
+    const lim = S.screen === 'activity' ? S.actPage * (S.activity.pageSize || 30) : 5;
+    const want = [...new Set(rows.slice(0, lim).map(r => r.mint))].filter(m => !S.noCoin[m] && (home.has(m) || !(S.coin[m] && S.coin[m]._ok)));
+    await Promise.all(want.map(m => get('coin/' + m + '.json').then(c => { c._ok = true; S.coin[m] = c; }).catch(() => { S.noCoin[m] = 1; })));
+  }
+
   async function poll() {
     try {
       const [state, chart, activity, agents, account, coins] = await Promise.all(
@@ -442,6 +505,7 @@
     S.nextTry = Date.now() + POLL_S * 1000;
     setError();
     render();
+    if (!S.failing) { await loadRowCoins(); render(); }
     setTimeout(poll, POLL_S * 1000);
   }
 
