@@ -1,1 +1,43 @@
-<!doctype html><title>Grok Desk</title><body style="background:#000;color:#fff;font-family:-apple-system">Grok Desk hosting test</body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Grok Desk">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>Grok Desk</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <div class="errrow" id="err"></div>
+
+  <section class="screen on" id="s-home"></section>
+  <section class="screen" id="s-agents"></section>
+  <section class="screen" id="s-activity"></section>
+  <section class="screen" id="s-account"></section>
+  <section class="screen" id="s-coin"></section>
+  <section class="screen" id="s-auditor"></section>
+</div>
+
+<nav class="tabbar" id="tabbar">
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button data-tab="agents"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3 3-5 6-5s6 2 6 5M12 20c0-3 2-5 4-5 3 0 6 2 6 5"/></svg>Agents</button>
+  <button data-tab="activity"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Activity</button>
+  <button data-tab="account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Account</button>
+</nav>
+
+<div class="sheet" id="sheet"><div class="inner" id="sheetin"></div></div>
+<div class="toast" id="toast"></div>
+<script src="chart.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
