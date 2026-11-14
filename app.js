@@ -14,7 +14,7 @@
   const DP = localStorage.getItem('desk_d');
   const BASE = DP ? `d/${DP}/` : null;
 
-  const S = { state: null, chart: null, activity: null, agents: null, account: null, coins: null, coin: {},
+  const S = { state: null, chart: null, activity: null, agents: null, account: null, coins: null, coin: {}, live: null,
     lastOk: null, nextTry: 0, failing: false, tab: 'home', screen: 'home', range: 'LIVE', actPage: 1, coinMint: null,
     auditMint: null, played: {} };
 
@@ -415,6 +415,38 @@
     syncLive();
   }
 
+  // ---------- LIVE (real pump.fun wallet). Public data only: address, balance, positions, Solscan tx links.
+  const sol = (v, signed) => v == null ? 'n/a' : (signed && v >= 0 ? '+' : v < 0 ? '-' : '') + Math.abs(v).toFixed(4) + ' SOL';
+  const extA = (href, label) => href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : '';
+  function livePill(m) {
+    const c = m === 'LIVE' ? 'live' : m === 'HALTED' ? 'halted' : 'paper';
+    return `<span class="mpill ${c}"><i></i>${esc(m || 'PAPER')}</span>`;
+  }
+  function liveSection() {
+    const L = S.live;
+    if (!L || !L.address) return '';
+    const capFrac = L.dailyLossCapSol ? Math.min(1, (L.dayLossSol || 0) / L.dailyLossCapSol) : 0;
+    let h = `<div class="grp" id="live">Real trading · pump.fun</div><div class="list livebox">
+      <div class="kv"><span class="k">Mode</span><span class="val">${livePill(L.mode)}</span></div>
+      <div class="kv"><span class="k">Armed on desk</span><span class="val ${L.enabled ? 'up' : 'muted'}">${L.enabled ? 'live.enabled on' : 'live.enabled off'}</span></div>
+      <a class="kv" href="${esc(L.addressUrl)}" target="_blank" rel="noopener noreferrer"><span class="k">Wallet</span><span class="val mono">${esc(shortM(L.address))} · Solscan ›</span></a>
+      <div class="kv"><span class="k">Balance</span><span class="val">${sol(L.balanceSol)}${L.balanceTs ? ` <span class="muted" style="font-size:12px">${hm(L.balanceTs)}</span>` : ''}</span></div>
+      <div class="kv"><span class="k">Today</span><span class="val ${L.todayPnlSol >= 0 ? 'up' : 'down'}">${sol(L.todayPnlSol, true)} <span class="muted">/ stop -${L.dailyLossCapSol} SOL</span></span></div>
+      <div class="capbar"><i style="width:${(capFrac * 100).toFixed(0)}%"></i></div>
+      <div class="kv"><span class="k">Caps</span><span class="val muted" style="font-size:13px">${L.caps.buy_sol} SOL/buy · ${L.caps.max_open} open · ${L.caps.reserve_sol} SOL reserve</span></div>
+    </div><div class="addr mono">${esc(L.address)}</div>`;
+    h += `<div class="grp">Open live positions · ${L.open.length}/${L.caps.max_open}</div><div class="list">` + (L.open.length ? L.open.map(p =>
+      `<div class="kv"><span>${nm(p.name, p.mint)} <span class="muted">${esc(p.symbol || '')}</span><br><span class="muted" style="font-size:12px">${sol(p.solIn)} in · ${hm(p.openedAt)}${p.status === 'sell_pending' ? ' · sell retrying' : ''}</span></span>
+        <span class="val" style="font-size:13px">${extA(p.txUrl, 'Tx ›')} ${fomoA(p.link, 'FOMO ›')}</span></div>`).join('')
+      : '<div class="kv"><span class="muted">None</span></div>') + '</div>';
+    h += `<div class="grp">Recent live trades</div><div class="list">` + (L.trades.length ? L.trades.slice(0, 15).map(t =>
+      `<div class="kv"><span>${t.side === 'buy' ? 'Buy' : 'Sell'} ${nm(t.name, t.mint)} <span class="muted" style="font-size:12px">${esc(t.reason || '')} · ${hm(t.ts)}</span><br>
+        <span class="muted" style="font-size:12px">${t.status === 'ok' ? sol(t.solDelta, true) : esc(t.error || t.status)}</span></span>
+        <span class="val" style="font-size:13px">${extA(t.txUrl, 'Solscan ›')} ${fomoA(t.link, 'FOMO ›')}</span></div>`).join('')
+      : '<div class="kv"><span class="muted">No live trades yet</span></div>') + '</div>';
+    return h + `<div class="grp">${esc(L.commands)}</div>`;
+  }
+
   // ---------- ACCOUNT
   function renderAccount() {
     const el = $('#s-account');
@@ -431,8 +463,10 @@
       <div class="kv"><span class="k">Telegram</span><span class="val ${a.telegram.connected ? 'up' : 'down'}">${a.telegram.connected ? 'Connected · ' + esc(a.telegram.bot) : 'Not connected'}</span></div>
       <div class="kv"><span class="k">Web push</span><span class="val muted" style="max-width:60%">${esc(a.webpush)}</span></div>
     </div>
+    ${liveSection()}
     <div class="grp">Settings are read-only here. Change them in Telegram, e.g. “set stop to -8%”.</div>`;
-    for (const g of ['scanner', 'auditor', 'analyst', 'executor', 'risk', 'desk']) {
+    labels.live = 'Real trading (box only)';
+    for (const g of ['scanner', 'auditor', 'analyst', 'executor', 'risk', 'desk', 'live']) {
       const s = a.settings[g] || {};
       h += `<div class="grp">${labels[g]}</div><div class="list">${Object.keys(s).map(k => `<div class="kv"><span class="k">${esc(k)}</span><span class="val" style="font-family:var(--mono);font-size:13px;word-break:break-all">${esc(val(k, s[k]))}</span></div>`).join('')}</div>`;
     }
@@ -559,6 +593,7 @@
         ['state.json', 'chart.json', 'activity.json', 'agents.json', 'account.json', 'coins.json'].map(get));
       if (Date.now() / 1000 - state.ts > 20 * 60) throw new Error('stale');
       Object.assign(S, { state, chart, activity, agents, account, coins });
+      try { S.live = await get('live.json'); } catch (e) { /* optional file */ }
       S.lastOk = state.ts * 1000; S.failing = false;
       if (S.screen === 'coin' && S.coinMint) await loadCoin(S.coinMint);
       if (S.screen === 'auditor' && S.auditMint) await loadCoin(S.auditMint);
